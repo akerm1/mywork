@@ -93,6 +93,8 @@ async function loadAccounts() {
         
         clients = [...new Set(accounts.map(acc => acc.client))].filter(Boolean);
         
+        console.log('Loaded accounts:', accounts.map(acc => acc.email)); // Debug log
+        
         renderAccounts();
         renderExpiringAccounts();
         renderAccountCounts();
@@ -166,7 +168,7 @@ async function bulkSaveAccounts(accountsData) {
 
 // Search Functions
 function performSearch() {
-    const emailInput = document.getElementById('emailSearchInput').value.trim().toLowerCase();
+    const emailInput = document.getElementById('emailSearchInput').value.trim();
     const dateQuery = document.getElementById('dateSearchInput').value;
     const clientQuery = document.getElementById('clientSearchInput').value.trim().toLowerCase();
     
@@ -175,18 +177,56 @@ function performSearch() {
         return;
     }
     
-    const emailQueries = emailInput.split(',').map(email => email.trim()).filter(email => email);
+    // Split input by commas, newlines, or separators, and normalize
+    const emailQueries = emailInput.split(/[\n,\s-]+/)
+        .map(email => email.trim().toLowerCase())
+        .filter(email => {
+            // Validate email format
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            return email && emailRegex.test(email);
+        });
     
+    console.log('Search email queries:', emailQueries); // Debug log
+    console.log('Database emails:', accounts.map(acc => acc.email.toLowerCase())); // Debug log
+    
+    // First, try to find exact email matches
     filteredAccounts = accounts.filter(account => {
-        const emailMatch = !emailInput || emailQueries.some(query => account.email.toLowerCase().includes(query));
+        const accountEmail = account.email.toLowerCase().trim();
+        const exactEmailMatch = emailQueries.some(query => accountEmail === query);
         const dateMatch = !dateQuery || account.date === dateQuery;
         const clientMatch = !clientQuery || account.client.toLowerCase().includes(clientQuery);
         
-        return emailMatch && dateMatch && clientMatch;
+        if (exactEmailMatch) {
+            console.log(`Exact match found for: ${account.email}`); // Debug log
+        }
+        
+        return exactEmailMatch && dateMatch && clientMatch;
     });
+    
+    // If no exact matches and no date/client filters, try partial matches
+    if (filteredAccounts.length === 0 && emailQueries.length > 0 && !dateQuery && !clientQuery) {
+        filteredAccounts = accounts.filter(account => {
+            const accountEmail = account.email.toLowerCase().trim();
+            const partialEmailMatch = emailQueries.some(query => accountEmail.includes(query));
+            const dateMatch = !dateQuery || account.date === dateQuery;
+            const clientMatch = !clientQuery || account.client.toLowerCase().includes(clientQuery);
+            
+            if (partialEmailMatch) {
+                console.log(`Partial match found for: ${account.email}`); // Debug log
+            }
+            
+            return partialEmailMatch && dateMatch && clientMatch;
+        });
+    }
+    
+    console.log('Filtered accounts:', filteredAccounts); // Debug log
     
     isSearchActive = true;
     renderSearchResults();
+    
+    if (filteredAccounts.length === 0) {
+        showMessage('No accounts found. Please verify the emails exist in the database and check for typos or extra spaces.', 'error');
+    }
 }
 
 function clearSearch() {
