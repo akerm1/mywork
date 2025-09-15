@@ -3,14 +3,79 @@ const firebaseConfig = {
     apiKey: "AIzaSyDznYcUtQWRD7QqYBDr1QupUMfVqZnfGEE",
     authDomain: "my-work-82778.firebaseapp.com",
     projectId: "my-work-82778",
-    storageBucket: "my-work-82778.firebasestorage.app",
+    storageBucket: "my-work-82778.appspot.com", // ✅ Fixed
     messagingSenderId: "1070444118182",
     appId: "1:1070444118182:web:bae373255bd124d3a2b467"
 };
 
-// Initialize Firebase
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
+// Initialize Firebase safely
+let db;
+try {
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+    console.log("✅ Firebase initialized successfully");
+} catch (error) {
+    console.error("❌ Firebase initialization failed:", error);
+    showError("Failed to connect to Firebase. Please check your configuration.");
+}
+
+// Global error fallback
+window.addEventListener("error", (event) => {
+    console.error("❌ Runtime Error:", event.error);
+    showError("An unexpected error occurred. Check console for details.");
+});
+
+// Helper function to show error in UI
+function showError(message) {
+    let errorBox = document.getElementById("errorBox");
+    if (!errorBox) {
+        errorBox = document.createElement("div");
+        errorBox.id = "errorBox";
+        errorBox.style.position = "fixed";
+        errorBox.style.top = "20px";
+        errorBox.style.left = "50%";
+        errorBox.style.transform = "translateX(-50%)";
+        errorBox.style.background = "#ff4444";
+        errorBox.style.color = "white";
+        errorBox.style.padding = "12px 20px";
+        errorBox.style.borderRadius = "8px";
+        errorBox.style.zIndex = "9999";
+        errorBox.style.fontFamily = "Arial, sans-serif";
+        errorBox.style.boxShadow = "0 2px 6px rgba(0,0,0,0.3)";
+        document.body.appendChild(errorBox);
+    }
+    errorBox.innerText = message;
+}
+
+// Example Firestore loader
+async function loadAccounts() {
+    if (!db) {
+        showError("Firestore not available. Accounts cannot be loaded.");
+        return;
+    }
+
+    try {
+        const snapshot = await db.collection("accounts").get();
+        if (snapshot.empty) {
+            console.warn("⚠️ No accounts found in Firestore.");
+            showError("No accounts found. Please add some.");
+            return;
+        }
+
+        snapshot.forEach(doc => {
+            console.log("📄 Account:", doc.id, doc.data());
+            // TODO: Render account rows in your tables
+        });
+
+    } catch (error) {
+        console.error("❌ Error loading accounts:", error);
+        showError("Failed to load accounts from Firestore.");
+    }
+}
+
+// Run loader
+loadAccounts();
+
 
 // Global variables
 let currentBulkClient = null;
@@ -1034,3 +1099,4 @@ if ('serviceWorker' in navigator) {
         });
     });
 }
+
