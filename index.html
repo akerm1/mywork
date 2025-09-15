@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Email Account Organizer</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://www.gstatic.com https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-inline' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.firebaseapp.com https://*.googleapis.com">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -28,6 +29,21 @@
             </div>
         </div>
 
+        <!-- Order Number Search Section -->
+        <div class="order-search-section">
+            <h3>Search by Order Number</h3>
+            <div class="search-controls">
+                <div class="search-inputs">
+                    <input type="text" id="orderSearchInput" placeholder="Search by order number..." />
+                </div>
+                <div class="search-buttons">
+                    <button id="orderSearchBtn" class="btn btn-primary">Search Orders</button>
+                    <button id="clearOrderSearchBtn" class="btn btn-secondary">Clear</button>
+                </div>
+            </div>
+            <div id="orderResults" class="order-results"></div>
+        </div>
+
         <!-- Export Section -->
         <div class="export-section">
             <h3>Export Data</h3>
@@ -48,6 +64,7 @@
                             <th>Client</th>
                             <th>Email</th>
                             <th>Expiration Date</th>
+                            <th>Order Numbers</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -66,6 +83,7 @@
                             <th>Client</th>
                             <th>Email</th>
                             <th>Expiration Date</th>
+                            <th>Order Numbers</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -103,8 +121,8 @@
             </div>
             <div class="modal-body">
                 <p>Paste emails (one per line). Format:</p>
-                <code>email@example.com</code> or <code>email@example.com,2025-12-31</code>
-                <textarea id="bulkEmailInput" placeholder="email1@example.com&#10;email2@example.com,2025-01-15&#10;email3@example.com"></textarea>
+                <pre><code>email@example.com</code> or <code>email@example.com,2025-12-31</code> or <code>email@example.com,2025-12-31,order1,order2,order3</code></pre>
+                <textarea id="bulkEmailInput" placeholder="email1@example.com&#10;email2@example.com,2025-01-15,order123,order456&#10;email3@example.com,,,order789"></textarea>
                 <div class="modal-actions">
                     <button id="processBulkUpload" class="btn btn-primary">Upload Emails</button>
                     <button id="cancelBulkUpload" class="btn btn-secondary">Cancel</button>
