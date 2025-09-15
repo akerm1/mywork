@@ -12,54 +12,51 @@
             <h1>📧 Email Account Organizer</h1>
         </header>
 
-
-
-<!-- Add this search section after your header -->
-<div class="search-section">
-    <h3>Search Accounts</h3>
-    <div class="search-controls">
-        <div class="search-inputs">
-            <input type="text" id="emailSearchInput" placeholder="Search by email..." />
-            <input type="date" id="dateSearchInput" placeholder="Search by date" />
-            <input type="text" id="clientSearchInput" placeholder="Search by client..." />
+        <!-- Search Section -->
+        <div class="search-section">
+            <h3>Search Accounts</h3>
+            <div class="search-controls">
+                <div class="search-inputs">
+                    <input type="text" id="emailSearchInput" placeholder="Search by email..." />
+                    <input type="date" id="dateSearchInput" placeholder="Search by date" />
+                    <input type="text" id="clientSearchInput" placeholder="Search by client..." />
+                </div>
+                <div class="search-buttons">
+                    <button id="searchBtn" class="btn btn-primary">Search</button>
+                    <button id="clearSearchBtn" class="btn btn-secondary">Clear</button>
+                </div>
+            </div>
         </div>
-        <div class="search-buttons">
-            <button id="searchBtn" class="btn btn-primary">Search</button>
-            <button id="clearSearchBtn" class="btn btn-secondary">Clear</button>
+
+        <!-- Export Section -->
+        <div class="export-section">
+            <h3>Export Data</h3>
+            <div class="export-buttons">
+                <button id="exportCSVBtn" class="btn btn-success">Export CSV</button>
+                <button id="exportExcelBtn" class="btn btn-success">Export Excel</button>
+                <button id="exportJSONBtn" class="btn btn-success">Export JSON</button>
+            </div>
         </div>
-    </div>
-</div>
 
-<!-- Export buttons section -->
-<div class="export-section">
-    <h3>Export Data</h3>
-    <div class="export-buttons">
-        <button id="exportCSVBtn" class="btn btn-success">Export CSV</button>
-        <button id="exportExcelBtn" class="btn btn-success">Export Excel</button>
-        <button id="exportJSONBtn" class="btn btn-success">Export JSON</button>
-    </div>
-</div>
+        <!-- Search Results -->
+        <div id="searchResults" class="search-results" style="display: none;">
+            <h3>Search Results <span id="resultCount"></span></h3>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Client</th>
+                            <th>Email</th>
+                            <th>Expiration Date</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="searchResultsBody"></tbody>
+                </table>
+            </div>
+        </div>
 
-<!-- Search results table -->
-<div id="searchResults" class="search-results" style="display: none;">
-    <h3>Search Results <span id="resultCount"></span></h3>
-    <div class="table-container">
-        <table>
-            <thead>
-                <tr>
-                    <th>Client</th>
-                    <th>Email</th>
-                    <th>Expiration Date</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody id="searchResultsBody">
-            </tbody>
-        </table>
-    </div>
-</div>
-
-        <!-- Expiring Tomorrow Section -->
+        <!-- Expiring Accounts -->
         <section class="expiring-section">
             <h2>⚠️ Accounts Expiring Tomorrow</h2>
             <div class="table-container">
@@ -72,9 +69,7 @@
                             <th>Actions</th>
                         </tr>
                     </thead>
-                    <tbody id="expiringTableBody">
-                        <!-- Expiring accounts will be populated here -->
-                    </tbody>
+                    <tbody id="expiringTableBody"></tbody>
                 </table>
                 <div id="noExpiringAccounts" class="no-data" style="display: none;">
                     No accounts expiring tomorrow
@@ -82,14 +77,12 @@
             </div>
         </section>
 
-        <!-- Main Accounts Section -->
+        <!-- Accounts Section -->
         <section class="accounts-section">
             <h2>📋 All Accounts by Client</h2>
-            <div id="clientsContainer">
-                <!-- Client tables will be dynamically generated here -->
-            </div>
+            <div id="clientsContainer"></div>
             
-            <!-- Add New Client -->
+            <!-- Add Client -->
             <div class="add-client-section">
                 <button id="addClientBtn" class="btn btn-primary">+ Add New Client</button>
                 <div id="newClientForm" class="new-client-form" style="display: none;">
@@ -139,10 +132,10 @@
         <p>Loading...</p>
     </div>
 
-    <!-- Firebase SDKs -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.22.0/firebase-app-compat.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.22.0/firebase-firestore-compat.min.js"></script>
-    
+    <!-- Firebase SDKs (official Google CDN) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
     <script src="script.js"></script>
 </body>
 </html>
