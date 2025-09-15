@@ -3,7 +3,7 @@ const firebaseConfig = {
     apiKey: "AIzaSyDznYcUtQWRD7QqYBDr1QupUMfVqZnfGEE",
     authDomain: "my-work-82778.firebaseapp.com",
     projectId: "my-work-82778",
-    storageBucket: "my-work-82778.appspot.com", // ✅ Fixed
+    storageBucket: "my-work-82778.appspot.com",
     messagingSenderId: "1070444118182",
     appId: "1:1070444118182:web:bae373255bd124d3a2b467"
 };
@@ -18,6 +18,14 @@ try {
     console.error("❌ Firebase initialization failed:", error);
     showError("Failed to connect to Firebase. Please check your configuration.");
 }
+
+// Global variables
+let currentBulkClient = null;
+let accounts = [];
+let clients = [];
+let filteredAccounts = [];
+let isSearchActive = false;
+let expandedClients = new Set(); // Track expanded client sections
 
 // Global error fallback
 window.addEventListener("error", (event) => {
@@ -46,44 +54,6 @@ function showError(message) {
     }
     errorBox.innerText = message;
 }
-
-// Example Firestore loader
-async function loadAccounts() {
-    if (!db) {
-        showError("Firestore not available. Accounts cannot be loaded.");
-        return;
-    }
-
-    try {
-        const snapshot = await db.collection("accounts").get();
-        if (snapshot.empty) {
-            console.warn("⚠️ No accounts found in Firestore.");
-            showError("No accounts found. Please add some.");
-            return;
-        }
-
-        snapshot.forEach(doc => {
-            console.log("📄 Account:", doc.id, doc.data());
-            // TODO: Render account rows in your tables
-        });
-
-    } catch (error) {
-        console.error("❌ Error loading accounts:", error);
-        showError("Failed to load accounts from Firestore.");
-    }
-}
-
-// Run loader
-loadAccounts();
-
-
-// Global variables
-let currentBulkClient = null;
-let accounts = [];
-let clients = [];
-let filteredAccounts = [];
-let isSearchActive = false;
-let expandedClients = new Set(); // Track expanded client sections
 
 // Utility Functions
 function formatDateForDisplay(dateString) {
@@ -137,32 +107,240 @@ function showMessage(message, type = 'success') {
 }
 
 function copyToClipboard(text) {
-    navigator.clipboard.writeText(text)
-        .then(() => showMessage('Emails copied to clipboard'))
-        .catch(err => showMessage('Error copying to clipboard', 'error'));
+    copyToClipboardSafe(text, 'Emails copied to clipboard');
+}
+
+// Order Number Functions
+function renderOrderNumbers(orderNumbers) {
+    if (!orderNumbers) orderNumbers = ['', '', '', '', ''];
+    
+    return `<div class="order-numbers">
+        ${orderNumbers.map((order, index) => {
+            if (order && order.trim()) {
+                return `
+                    <div class="order-number">
+                        <span class="order-text">${escapeHtml(order)}</span>
+                        <button class="order-copy-btn" type="button" data-copy="${escapeHtml(order)}" title="Copy ${escapeHtml(order)}">
+                            📋
+                        </button>
+                    </div>
+                `;
+            } else {
+                return `
+                    <div class="order-number empty">
+                        <span class="order-text">Order ${index + 1}</span>
+                    </div>
+                `;
+            }
+        }).join('')}
+    </div>`;
+}
+
+function renderOrderInputs(orderNumbers, accountId) {
+    if (!orderNumbers) orderNumbers = ['', '', '', '', ''];
+    
+    return `<div class="order-inputs">
+        ${orderNumbers.map((order, index) => `
+            <input type="text" 
+                   value="${escapeHtml(order)}" 
+                   placeholder="Order ${index + 1}"
+                   data-account="${escapeHtml(accountId)}"
+                   data-index="${index}"
+                   class="order-input"
+                   maxlength="50">
+        `).join('')}
+    </div>`;
+}
+
+// Security helper function
+function escapeHtml(text) {
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return String(text).replace(/[&<>"']/g, function(m) { return map[m]; });
+}
+
+// Safe copy function with fallback
+function copyToClipboardSafe(text, successMessage = 'Copied to clipboard') {
+    // Modern clipboard API
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text)
+            .then(() => showMessage(successMessage))
+            .catch(err => {
+                console.warn('Clipboard API failed, using fallback');
+                fallbackCopy(text, successMessage);
+            });
+    } else {
+        // Fallback for older browsers or non-HTTPS
+        fallbackCopy(text, successMessage);
+    }
+}
+
+function fallbackCopy(text, successMessage) {
+    try {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        
+        if (successful) {
+            showMessage(successMessage);
+        } else {
+            showMessage('Copy failed - please select and copy manually', 'error');
+        }
+    } catch (err) {
+        showMessage('Copy not supported in this browser', 'error');
+        console.error('Copy failed:', err);
+    }
+}
+
+function searchByOrderNumber() {
+    const query = document.getElementById('orderSearchInput').value.trim().toLowerCase();
+    
+    if (!query) {
+        document.getElementById('orderResults').style.display = 'none';
+        return;
+    }
+
+    const matches = accounts.filter(account => 
+        account.orderNumbers && account.orderNumbers.some(order => 
+            order.toLowerCase().includes(query)
+        )
+    );
+
+    renderOrderSearchResults(matches, query);
+}
+
+function renderOrderSearchResults(matches, query) {
+    const resultsDiv = document.getElementById('orderResults');
+    
+    if (matches.length === 0) {
+        resultsDiv.innerHTML = `<div class="no-data">No accounts found with order number containing "${query}"</div>`;
+        resultsDiv.style.display = 'block';
+        return;
+    }
+
+    const resultsHTML = matches.map(account => {
+        const matchingOrders = account.orderNumbers.filter(order => 
+            order.toLowerCase().includes(query)
+        ).join(', ');
+
+        return `
+            <div class="order-match">
+                <div class="order-match-header">
+                    ${escapeHtml(account.client)} - ${escapeHtml(account.email)}
+                </div>
+                <div class="order-match-details">
+                    Matching Orders: <strong>${escapeHtml(matchingOrders)}</strong><br>
+                    All Orders: ${escapeHtml(account.orderNumbers.filter(o => o).join(', ') || 'None')}<br>
+                    Expiration: ${formatDateForDisplay(account.date)}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    resultsDiv.innerHTML = `
+        <h4>Found ${matches.length} account${matches.length !== 1 ? 's' : ''} with matching order numbers:</h4>
+        ${resultsHTML}
+    `;
+    resultsDiv.style.display = 'block';
+}
+
+// Enhanced security for dynamic content
+function sanitizeForHTML(str) {
+    return escapeHtml(String(str || ''));
+}
+
+function createSecureElement(tag, attributes = {}, textContent = '') {
+    const element = document.createElement(tag);
+    
+    // Set attributes securely
+    Object.keys(attributes).forEach(key => {
+        if (key === 'onclick') {
+            // Avoid inline onclick handlers
+            return;
+        }
+        element.setAttribute(key, sanitizeForHTML(attributes[key]));
+    });
+    
+    if (textContent) {
+        element.textContent = textContent;
+    }
+    
+    return element;
+}
+
+function clearOrderSearch() {
+    document.getElementById('orderSearchInput').value = '';
+    document.getElementById('orderResults').style.display = 'none';
+}
+
+// Event delegation for order copy buttons
+function handleOrderCopy(event) {
+    if (event.target.classList.contains('order-copy-btn')) {
+        event.preventDefault();
+        event.stopPropagation();
+        const orderText = event.target.getAttribute('data-copy');
+        if (orderText && orderText.trim()) {
+            copyToClipboardSafe(orderText.trim(), `Order "${orderText}" copied to clipboard`);
+        }
+    }
 }
 
 // Firebase Functions
 async function loadAccounts() {
+    if (!db) {
+        showError("Firestore not available. Accounts cannot be loaded.");
+        return;
+    }
+
     try {
         showLoading();
         const snapshot = await db.collection('accounts').get();
         accounts = [];
         
+        if (snapshot.empty) {
+            console.warn("⚠️ No accounts found in Firestore.");
+            clients = [];
+            renderAccounts();
+            renderExpiringAccounts();
+            hideLoading();
+            return;
+        }
+
         snapshot.forEach(doc => {
-            accounts.push({
+            const data = doc.data();
+            console.log("🔥 Account:", doc.id, data);
+            
+            // Handle both old accounts (without orderNumbers) and new accounts (with orderNumbers)
+            const account = {
                 id: doc.id,
-                ...doc.data()
-            });
+                client: data.client,
+                email: data.email,
+                date: data.date,
+                orderNumbers: data.orderNumbers || ['', '', '', '', ''] // Default empty order numbers for existing accounts
+            };
+            
+            accounts.push(account);
         });
         
         clients = [...new Set(accounts.map(acc => acc.client))].filter(Boolean);
         
-        console.log('Loaded accounts:', accounts.map(acc => acc.email)); // Debug log
+        console.log('Loaded accounts:', accounts.map(acc => acc.email));
         
         renderAccounts();
         renderExpiringAccounts();
-        renderAccountCounts();
         hideLoading();
     } catch (error) {
         console.error('Error loading accounts:', error);
@@ -177,9 +355,8 @@ async function saveAccount(accountData) {
             client: accountData.client,
             email: accountData.email,
             date: formatDateForStorage(accountData.date),
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            orderNumbers: accountData.orderNumbers || ['', '', '', '', '']
         });
-        
         return docRef.id;
     } catch (error) {
         console.error('Error saving account:', error);
@@ -193,7 +370,7 @@ async function updateAccount(id, accountData) {
             client: accountData.client,
             email: accountData.email,
             date: formatDateForStorage(accountData.date),
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            orderNumbers: accountData.orderNumbers || ['', '', '', '', '']
         });
     } catch (error) {
         console.error('Error updating account:', error);
@@ -220,7 +397,7 @@ async function bulkSaveAccounts(accountsData) {
                 client: accountData.client,
                 email: accountData.email,
                 date: formatDateForStorage(accountData.date),
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                orderNumbers: accountData.orderNumbers || ['', '', '', '', '']
             });
         });
         
@@ -251,46 +428,28 @@ function performSearch() {
             return email && emailRegex.test(email);
         });
     
-    console.log('Search email queries:', emailQueries); // Debug log
-    console.log('Database emails:', accounts.map(acc => acc.email.toLowerCase())); // Debug log
+    console.log('Search email queries:', emailQueries);
+    console.log('Database emails:', accounts.map(acc => acc.email.toLowerCase()));
     
     // First, try to find exact email matches
     filteredAccounts = accounts.filter(account => {
         const accountEmail = account.email.toLowerCase().trim();
         const exactEmailMatch = emailQueries.some(query => accountEmail === query);
+        const partialEmailMatch = emailQueries.some(query => accountEmail.includes(query));
+        const emailMatch = !emailInput || exactEmailMatch || (emailQueries.length > 0 && partialEmailMatch);
         const dateMatch = !dateQuery || account.date === dateQuery;
         const clientMatch = !clientQuery || account.client.toLowerCase().includes(clientQuery);
         
-        if (exactEmailMatch) {
-            console.log(`Exact match found for: ${account.email}`); // Debug log
-        }
-        
-        return exactEmailMatch && dateMatch && clientMatch;
+        return emailMatch && dateMatch && clientMatch;
     });
     
-    // If no exact matches and no date/client filters, try partial matches
-    if (filteredAccounts.length === 0 && emailQueries.length > 0 && !dateQuery && !clientQuery) {
-        filteredAccounts = accounts.filter(account => {
-            const accountEmail = account.email.toLowerCase().trim();
-            const partialEmailMatch = emailQueries.some(query => accountEmail.includes(query));
-            const dateMatch = !dateQuery || account.date === dateQuery;
-            const clientMatch = !clientQuery || account.client.toLowerCase().includes(clientQuery);
-            
-            if (partialEmailMatch) {
-                console.log(`Partial match found for: ${account.email}`); // Debug log
-            }
-            
-            return partialEmailMatch && dateMatch && clientMatch;
-        });
-    }
-    
-    console.log('Filtered accounts:', filteredAccounts); // Debug log
+    console.log('Filtered accounts:', filteredAccounts);
     
     isSearchActive = true;
     renderSearchResults();
     
     if (filteredAccounts.length === 0) {
-        showMessage('No accounts found. Please verify the emails exist in the database and check for typos or extra spaces.', 'error');
+        showMessage('No accounts found matching your search criteria.', 'error');
     }
 }
 
@@ -339,6 +498,7 @@ function renderSearchResults() {
                 <td>${account.client}</td>
                 <td>${account.email}</td>
                 <td>${formatDateForDisplay(account.date)}</td>
+                <td>${renderOrderNumbers(account.orderNumbers)}</td>
                 <td>
                     <div class="action-buttons">
                         <button class="btn btn-warning btn-small" onclick="editAccount('${account.id}')">
@@ -369,13 +529,18 @@ function exportToCSV() {
         return;
     }
     
-    const headers = ['Client', 'Email', 'Expiration Date'];
+    const headers = ['Client', 'Email', 'Expiration Date', 'Order 1', 'Order 2', 'Order 3', 'Order 4', 'Order 5'];
     const csvContent = [
         headers.join(','),
         ...dataToExport.map(account => [
             `"${account.client}"`,
             `"${account.email}"`,
-            `"${formatDateForDisplay(account.date)}"`
+            `"${formatDateForDisplay(account.date)}"`,
+            `"${account.orderNumbers ? account.orderNumbers[0] || '' : ''}"`,
+            `"${account.orderNumbers ? account.orderNumbers[1] || '' : ''}"`,
+            `"${account.orderNumbers ? account.orderNumbers[2] || '' : ''}"`,
+            `"${account.orderNumbers ? account.orderNumbers[3] || '' : ''}"`,
+            `"${account.orderNumbers ? account.orderNumbers[4] || '' : ''}"`
         ].join(','))
     ].join('\n');
     
@@ -409,12 +574,22 @@ function exportToExcel() {
                     <Cell><Data ss:Type="String">Client</Data></Cell>
                     <Cell><Data ss:Type="String">Email</Data></Cell>
                     <Cell><Data ss:Type="String">Expiration Date</Data></Cell>
+                    <Cell><Data ss:Type="String">Order 1</Data></Cell>
+                    <Cell><Data ss:Type="String">Order 2</Data></Cell>
+                    <Cell><Data ss:Type="String">Order 3</Data></Cell>
+                    <Cell><Data ss:Type="String">Order 4</Data></Cell>
+                    <Cell><Data ss:Type="String">Order 5</Data></Cell>
                 </Row>
                 ${dataToExport.map(account => `
                     <Row>
                         <Cell><Data ss:Type="String">${account.client}</Data></Cell>
                         <Cell><Data ss:Type="String">${account.email}</Data></Cell>
                         <Cell><Data ss:Type="String">${formatDateForDisplay(account.date)}</Data></Cell>
+                        <Cell><Data ss:Type="String">${account.orderNumbers ? account.orderNumbers[0] || '' : ''}</Data></Cell>
+                        <Cell><Data ss:Type="String">${account.orderNumbers ? account.orderNumbers[1] || '' : ''}</Data></Cell>
+                        <Cell><Data ss:Type="String">${account.orderNumbers ? account.orderNumbers[2] || '' : ''}</Data></Cell>
+                        <Cell><Data ss:Type="String">${account.orderNumbers ? account.orderNumbers[3] || '' : ''}</Data></Cell>
+                        <Cell><Data ss:Type="String">${account.orderNumbers ? account.orderNumbers[4] || '' : ''}</Data></Cell>
                     </Row>
                 `).join('')}
             </Table>
@@ -447,7 +622,8 @@ function exportToJSON() {
         client: account.client,
         email: account.email,
         expirationDate: formatDateForDisplay(account.date),
-        rawDate: account.date
+        rawDate: account.date,
+        orderNumbers: account.orderNumbers || ['', '', '', '', '']
     })), null, 2);
     
     const blob = new Blob([jsonContent], { type: 'application/json' });
@@ -465,27 +641,6 @@ function exportToJSON() {
 }
 
 // Rendering Functions
-function renderAccountCounts() {
-    const totalAccounts = accounts.length;
-    const accountsByClient = {};
-    accounts.forEach(account => {
-        if (!accountsByClient[account.client]) {
-            accountsByClient[account.client] = [];
-        }
-        accountsByClient[account.client].push(account);
-    });
-
-    const totalAccountsEl = document.getElementById('totalAccounts');
-    const clientCountsEl = document.getElementById('clientCounts');
-    
-    totalAccountsEl.textContent = `Total Accounts: ${totalAccounts}`;
-    clientCountsEl.innerHTML = Object.keys(accountsByClient).sort().map(client => {
-        const emails = accountsByClient[client].map(acc => acc.email).join(', ');
-        return `<p>${client}: ${accountsByClient[client].length} account${accountsByClient[client].length !== 1 ? 's' : ''} 
-            <button class="btn btn-copy btn-small" onclick="copyToClipboard('${emails}')">Copy Emails</button></p>`;
-    }).join('');
-}
-
 function renderAccounts() {
     const container = document.getElementById('clientsContainer');
     container.innerHTML = '';
@@ -536,6 +691,7 @@ function createClientSection(clientName, clientAccounts) {
                     <tr>
                         <th>Email</th>
                         <th>Expiration Date</th>
+                        <th>Order Numbers</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -570,6 +726,7 @@ function createAccountRow(account) {
         <tr class="account-row" data-id="${account.id}">
             <td class="email-cell">${account.email}</td>
             <td class="date-cell">${formatDateForDisplay(account.date)}</td>
+            <td class="orders-cell">${renderOrderNumbers(account.orderNumbers)}</td>
             <td class="actions-cell">
                 <div class="action-buttons">
                     <button class="btn btn-warning btn-small" onclick="editAccount('${account.id}')">
@@ -604,6 +761,7 @@ function renderExpiringAccounts() {
                 <td>${account.client}</td>
                 <td>${account.email}</td>
                 <td>${formatDateForDisplay(account.date)}</td>
+                <td>${renderOrderNumbers(account.orderNumbers)}</td>
                 <td>
                     <div class="action-buttons">
                         <button class="btn btn-warning btn-small" onclick="editAccount('${account.id}')">
@@ -635,6 +793,9 @@ function addNewAccount(clientName) {
             <input type="date" class="new-date" value="${getTodayFormatted()}">
         </td>
         <td>
+            ${renderOrderInputs(['', '', '', '', ''], 'new')}
+        </td>
+        <td>
             <div class="action-buttons">
                 <button class="btn btn-success btn-small" onclick="saveNewAccount('${clientName}', this)">
                     Save
@@ -650,27 +811,55 @@ function addNewAccount(clientName) {
     newRow.querySelector('.new-email').focus();
 }
 
+// Input validation functions
+function validateEmail(email) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+}
+
+function validateDate(dateString) {
+    if (!dateString) return true; // Empty dates are OK
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(dateString)) return false;
+    
+    const date = new Date(dateString);
+    return date instanceof Date && !isNaN(date);
+}
+
+function sanitizeOrderNumber(orderNum) {
+    // Remove potentially dangerous characters, keep only alphanumeric, spaces, hyphens, underscores
+    return String(orderNum || '').replace(/[^a-zA-Z0-9\s\-_]/g, '').trim().substring(0, 50);
+}
+
 async function saveNewAccount(clientName, button) {
     const row = button.closest('tr');
     const email = row.querySelector('.new-email').value.trim();
     const date = row.querySelector('.new-date').value;
+    const orderInputs = row.querySelectorAll('.order-input');
+    const orderNumbers = Array.from(orderInputs).map(input => sanitizeOrderNumber(input.value));
     
     if (!email) {
         showMessage('Please enter an email address', 'error');
         return;
     }
     
-    if (!email.includes('@')) {
+    if (!validateEmail(email)) {
         showMessage('Please enter a valid email address', 'error');
+        return;
+    }
+    
+    if (!validateDate(date)) {
+        showMessage('Please enter a valid date', 'error');
         return;
     }
     
     try {
         showLoading();
         const accountData = {
-            client: clientName,
-            email: email,
-            date: date || getTodayFormatted()
+            client: sanitizeForHTML(clientName),
+            email: sanitizeForHTML(email),
+            date: date || getTodayFormatted(),
+            orderNumbers: orderNumbers
         };
         
         const id = await saveAccount(accountData);
@@ -680,7 +869,6 @@ async function saveNewAccount(clientName, button) {
         showMessage('Account added successfully');
         renderAccounts();
         renderExpiringAccounts();
-        renderAccountCounts();
         
         if (isSearchActive) {
             performSearch();
@@ -688,6 +876,7 @@ async function saveNewAccount(clientName, button) {
     } catch (error) {
         hideLoading();
         showMessage('Error adding account', 'error');
+        console.error('Save error:', error);
     }
 }
 
@@ -710,10 +899,12 @@ function editAccount(id) {
     
     const emailCell = row.querySelector('.email-cell');
     const dateCell = row.querySelector('.date-cell');
+    const ordersCell = row.querySelector('.orders-cell');
     const actionsCell = row.querySelector('.actions-cell');
     
     emailCell.innerHTML = `<input type="email" class="edit-email" value="${account.email}">`;
     dateCell.innerHTML = `<input type="date" class="edit-date" value="${account.date}">`;
+    ordersCell.innerHTML = renderOrderInputs(account.orderNumbers, id);
     actionsCell.innerHTML = `
         <div class="action-buttons">
             <button class="btn btn-success btn-small" onclick="saveAccountEdit('${id}')">
@@ -733,9 +924,16 @@ async function saveAccountEdit(id) {
     const row = document.querySelector(`tr[data-id="${id}"]`);
     const email = row.querySelector('.edit-email').value.trim();
     const date = row.querySelector('.edit-date').value;
+    const orderInputs = row.querySelectorAll('.order-input');
+    const orderNumbers = Array.from(orderInputs).map(input => sanitizeOrderNumber(input.value));
     
-    if (!email || !email.includes('@')) {
+    if (!email || !validateEmail(email)) {
         showMessage('Please enter a valid email address', 'error');
+        return;
+    }
+    
+    if (!validateDate(date)) {
+        showMessage('Please enter a valid date', 'error');
         return;
     }
     
@@ -743,9 +941,10 @@ async function saveAccountEdit(id) {
         showLoading();
         const account = accounts.find(acc => acc.id === id);
         const updatedData = {
-            client: account.client,
-            email: email,
-            date: date || getTodayFormatted()
+            client: sanitizeForHTML(account.client),
+            email: sanitizeForHTML(email),
+            date: date || getTodayFormatted(),
+            orderNumbers: orderNumbers
         };
         
         await updateAccount(id, updatedData);
@@ -756,7 +955,6 @@ async function saveAccountEdit(id) {
         showMessage('Account updated successfully');
         renderAccounts();
         renderExpiringAccounts();
-        renderAccountCounts();
         
         if (isSearchActive) {
             performSearch();
@@ -764,6 +962,7 @@ async function saveAccountEdit(id) {
     } catch (error) {
         hideLoading();
         showMessage('Error updating account', 'error');
+        console.error('Update error:', error);
     }
 }
 
@@ -790,7 +989,6 @@ async function deleteAccountConfirmed(id) {
         showMessage('Account deleted successfully');
         renderAccounts();
         renderExpiringAccounts();
-        renderAccountCounts();
         
         if (isSearchActive) {
             performSearch();
@@ -828,18 +1026,22 @@ async function processBulkUpload() {
         const trimmedLine = line.trim();
         if (!trimmedLine) return;
         
-        let email, date;
+        const parts = trimmedLine.split(',').map(part => part.trim());
+        const email = parts[0];
+        const date = parts[1] || getTodayFormatted();
         
-        if (trimmedLine.includes(',')) {
-            const parts = trimmedLine.split(',');
-            email = parts[0].trim();
-            date = parts[1].trim();
-        } else {
-            email = trimmedLine;
-            date = getTodayFormatted();
+        // Extract order numbers from parts 2-6 (up to 5 order numbers)
+        const orderNumbers = [];
+        for (let i = 2; i < 7; i++) {
+            orderNumbers.push(parts[i] || '');
         }
         
-        if (!email.includes('@')) {
+        // Ensure we have exactly 5 order number slots
+        while (orderNumbers.length < 5) {
+            orderNumbers.push('');
+        }
+        
+        if (!email || !email.includes('@')) {
             errors.push(`Line ${index + 1}: Invalid email format`);
             return;
         }
@@ -855,7 +1057,8 @@ async function processBulkUpload() {
         accountsToAdd.push({
             client: currentBulkClient,
             email: email,
-            date: date || getTodayFormatted()
+            date: date,
+            orderNumbers: orderNumbers.slice(0, 5)
         });
     });
     
@@ -873,20 +1076,16 @@ async function processBulkUpload() {
         showLoading();
         await bulkSaveAccounts(accountsToAdd);
         
-        accountsToAdd.forEach(accountData => {
-            accounts.push({
-                id: Date.now() + Math.random(),
-                ...accountData
-            });
-        });
+        // Reload accounts from database to get the actual IDs
+        await loadAccounts();
         
         hideLoading();
         closeBulkUploadModal();
         showMessage(`Successfully added ${accountsToAdd.length} accounts`);
-        loadAccounts();
     } catch (error) {
         hideLoading();
         showMessage('Error uploading accounts', 'error');
+        console.error('Bulk upload error:', error);
     }
 }
 
@@ -926,7 +1125,8 @@ async function saveNewClient() {
         const placeholderAccount = {
             client: clientName,
             email: 'example@email.com',
-            date: getTodayFormatted()
+            date: getTodayFormatted(),
+            orderNumbers: ['', '', '', '', '']
         };
         
         const id = await saveAccount(placeholderAccount);
@@ -937,7 +1137,6 @@ async function saveNewClient() {
         hideAddClientForm();
         showMessage(`Client "${clientName}" added successfully`);
         renderAccounts();
-        renderAccountCounts();
         
         setTimeout(() => {
             editAccount(id);
@@ -966,37 +1165,25 @@ function showConfirmModal(message, onConfirm) {
     };
 }
 
-// Real-time Updates
-function setupRealTimeUpdates() {
-    db.collection('accounts').onSnapshot((snapshot) => {
-        const updatedAccounts = [];
-        snapshot.forEach(doc => {
-            updatedAccounts.push({
-                id: doc.id,
-                ...doc.data()
-            });
-        });
-        
-        accounts = updatedAccounts;
-        clients = [...new Set(accounts.map(acc => acc.client))].filter(Boolean);
-        
-        renderAccounts();
-        renderExpiringAccounts();
-        renderAccountCounts();
-        
-        if (isSearchActive) {
-            performSearch();
-        }
-    }, (error) => {
-        console.error('Error in real-time updates:', error);
-    });
+// Debounce function for auto-search
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
 }
 
 // Event Listeners
 document.addEventListener('DOMContentLoaded', function() {
     loadAccounts();
     
-    // setupRealTimeUpdates();
+    // Add event delegation for order copy buttons
+    document.addEventListener('click', handleOrderCopy);
     
     document.getElementById('addClientBtn').addEventListener('click', showAddClientForm);
     document.getElementById('saveClientBtn').addEventListener('click', saveNewClient);
@@ -1011,10 +1198,22 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('searchBtn').addEventListener('click', performSearch);
     document.getElementById('clearSearchBtn').addEventListener('click', clearSearch);
     
+    // Order search functionality
+    document.getElementById('orderSearchBtn').addEventListener('click', searchByOrderNumber);
+    document.getElementById('clearOrderSearchBtn').addEventListener('click', clearOrderSearch);
+    
+    document.getElementById('orderSearchInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            searchByOrderNumber();
+        }
+    });
+    
     // Auto-search on input
     ['emailSearchInput', 'dateSearchInput', 'clientSearchInput'].forEach(inputId => {
         document.getElementById(inputId).addEventListener('input', debounce(performSearch, 300));
     });
+    
+    document.getElementById('orderSearchInput').addEventListener('input', debounce(searchByOrderNumber, 300));
     
     ['emailSearchInput', 'dateSearchInput', 'clientSearchInput'].forEach(inputId => {
         document.getElementById(inputId).addEventListener('keypress', function(e) {
@@ -1070,33 +1269,8 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// Debounce function for auto-search
-function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-    };
-}
-
 // Error Handling
 window.addEventListener('error', function(e) {
     console.error('Global error:', e.error);
     showMessage('An unexpected error occurred', 'error');
 });
-
-// Service Worker for Offline Support
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function() {
-        navigator.serviceWorker.register('/sw.js').then(function(registration) {
-            console.log('ServiceWorker registration successful');
-        }, function(err) {
-            console.log('ServiceWorker registration failed');
-        });
-    });
-}
-
